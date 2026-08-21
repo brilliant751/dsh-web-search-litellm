@@ -1,0 +1,55 @@
+{
+  "name": "@brilliant751/dsh-web-search-litellm",
+  "version": "0.1.0",
+  "description": "LiteLLM /v1/search-backed web search provider for the DeepSeek Harness web capability seam (ctx.web). One search is one HTTP request — no model turn.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "web-search",
+    "litellm",
+    "search"
+  ],
+  "author": "brilliant751",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brilliant751/dsh-web-search-litellm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/brilliant751/dsh-web-search-litellm/issues"
+  },
+  "homepage": "https://github.com/brilliant751/dsh-web-search-litellm#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-web": "^0.1.0-rc.6"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-web": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
+  }
+}

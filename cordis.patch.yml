@@ -1,0 +1,27 @@
+# Bundle patch for @brilliant751/dsh-web-search-litellm.
+#
+# Registers the `litellm` search provider into ctx.web and selects it as the
+# active web-search backend. The shipped DeepSeek provider remains registered
+# but unselected; point `web.searchProvider` back at `deepseek-official` (or
+# remove this bundle) to restore it.
+#
+# Override any value from your profile's own cordis.patch.yml (or a --patch
+# overlay): a patch replaces a targeted row's whole `config`, so restate the
+# complete config when overriding.
+
+- insert:
+    - id: web-search-litellm
+      name: '@brilliant751/dsh-web-search-litellm'
+      config:
+        # LiteLLM base URL. `/search` is appended by the provider. This is the
+        # OpenAI-compatible base (with `/v1`), NOT the Anthropic passthrough.
+        baseURL: https://your-litellm.example.com/v1
+        # Credential reference resolved per search through ctx.credentials,
+        # falling back to the process environment.
+        apiKeyEnv: DEEPSEEK_API_KEY
+        # The LiteLLM search tool to invoke (see `GET /search/tools`).
+        searchToolName: google
+
+- id: web
+  config:
+    searchProvider: litellm
