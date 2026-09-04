@@ -14,6 +14,32 @@ dsh plugin --profile web add @brilliant751/dsh-web-search-litellm
 
 重启 `dsh web`。本包声明了 `dsh.bundle.patch`，因此 `dsh plugin add` 会把它追加进 `dsh.profile.bundles`，从而注册 `litellm` provider 并将其选为当前搜索后端。
 
+## LiteLLM 前置配置
+
+LiteLLM 通过一个具名 search tool 路由搜索。这个名称是网关内的本地标识，
+并不等于底层 provider 类型。包内默认配置期望存在名为 `google` 的工具。
+例如，可以在 LiteLLM 的 `config.yaml` 中把它映射到 Google PSE：
+
+```yaml
+search_tools:
+  - search_tool_name: google
+    litellm_params:
+      search_provider: google_pse
+      api_key: os.environ/GOOGLE_PSE_API_KEY
+```
+
+Google PSE 还要求 LiteLLM 服务端环境中存在 `GOOGLE_PSE_ENGINE_ID`。其他
+`search_provider` 也可以复用同一个本地工具名。
+
+配置 DSH 前，先确认网关的虚拟 key 能看到该工具：
+
+```sh
+curl https://your-litellm.example.com/v1/search/tools \
+  -H 'Authorization: Bearer YOUR_LITELLM_VIRTUAL_KEY'
+```
+
+响应的 `data[].search_tool_name` 中必须包含下方配置使用的名称。
+
 ## 工作原理
 
 - 向 `ctx.web` 注册一个 id 为 `litellm` 的 `WebSearchProvider`。
@@ -28,8 +54,11 @@ dsh plugin --profile web add @brilliant751/dsh-web-search-litellm
 | 键 | 默认值 | 含义 |
 |-----|--------|------|
 | `baseURL` | `https://your-litellm.example.com/v1` | LiteLLM 基础地址；`/search` 会被追加。这是 OpenAI 兼容基础地址，不是 Anthropic passthrough。 |
-| `apiKeyEnv` | `DEEPSEEK_API_KEY` | 凭证引用，每次搜索时通过 `ctx.credentials` 解析（Models 页面写入），然后回退到环境变量。 |
+| `apiKeyEnv` | `DEEPSEEK_API_KEY` | 凭证引用，每次搜索时通过 `ctx.credentials` 解析（Models 页面写入），然后回退到 DSH 启动环境。 |
 | `searchToolName` | `google` | 要调用的 LiteLLM 搜索工具（见 `GET {baseURL}/search/tools`）。 |
+
+本包导出了 Cordis `Config` schema，因此兼容的 DSH 配置界面可以渲染这些
+字段，并对字面量 `apiKey` 做脱敏。bundle patch 仍然是可移植的初始配置来源。
 
 在你自己 profile 的 `cordis.patch.yml` 或 `--patch` overlay 中覆盖任意值。注意：patch 会**整体替换目标行的 `config`**（不做合并），所以覆盖时必须重写完整配置：
 
@@ -49,7 +78,24 @@ dsh plugin --profile web add @brilliant751/dsh-web-search-litellm
 
 1. 配置中的字面量 `apiKey`（不推荐——优先用凭证存储）。
 2. `ctx.credentials` 解析 `apiKeyEnv`（Web UI 的 Models/Web-search 卡片会写入 `$DSH_HOME/.credentials.yaml`）。
-3. `process.env[apiKeyEnv]`。
+3. DSH 启动环境快照：继承的进程环境变量、项目 `.env`，再到 Harness
+   home 下的 `.env`。
+
+## 兼容性
+
+`0.1.1` 支持 `0.1.0-rc.6` 至 `0.1.2-rc.1` 的 DSH web seam
+预发布版本，并要求 Node.js 20 或更高版本。
+
+## 排障
+
+- **已配置的 provider 不可用：**检查 `baseURL` 是否为绝对 URL、
+  `searchToolName` 是否非空，以及凭证存储或启动环境能否解析 `apiKeyEnv`。
+- **HTTP 401/403：**虚拟 key 必须被授权调用所选 LiteLLM search tool；
+  该权限与聊天模型权限相互独立。
+- **找不到 search tool/model：**调用 `GET {baseURL}/search/tools`，把准确的
+  `search_tool_name` 填入插件配置。
+- **搜索响应无效：**确认目标路由是 LiteLLM Search API，且网关返回
+  `results` 数组。
 
 ## 安全说明
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { LiteLLMSearchProvider } from "../index.js";
+import { Config, LiteLLMSearchProvider } from "../index.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -8,12 +8,15 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function context({ credential = "test-key", resolve } = {}) {
+function context({ credential = "test-key", launchEnvironment, resolve } = {}) {
   return {
     get(service) {
+      if (service === "launchEnvironment") return launchEnvironment;
       if (service !== "credentials") return void 0;
       return {
-        resolve: resolve ?? (async () => credential === void 0 ? void 0 : { value: credential }),
+        resolve: resolve ?? (async () => credential === null || credential === void 0
+          ? void 0
+          : { value: credential }),
       };
     },
   };
@@ -183,5 +186,42 @@ describe("LiteLLM availability", () => {
     assert.equal(provider({ baseURL: "not a url" }).available(), false);
     assert.equal(provider({}, { get: () => void 0 }).available(), false);
     assert.equal(provider({ apiKey: "literal" }, { get: () => void 0 }).available(), true);
+  });
+
+  it("rejects an empty search tool name", () => {
+    assert.equal(provider({ searchToolName: "" }).available(), false);
+  });
+});
+
+describe("DSH configuration integration", () => {
+  it("publishes defaults through the Cordis schema", () => {
+    assert.deepEqual(Config({}), {
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+      baseURL: "https://your-litellm.example.com/v1",
+      searchToolName: "google",
+    });
+  });
+
+  it("resolves credentials from the immutable launch environment", async () => {
+    let authorization;
+    globalThis.fetch = async (_url, init) => {
+      authorization = init.headers.authorization;
+      return jsonResponse({ results: [] });
+    };
+    const ctx = context({
+      credential: null,
+      launchEnvironment: {
+        get(name) {
+          return name === "LITELLM_TEST_KEY"
+            ? { value: "launch-key", source: "project-env" }
+            : void 0;
+        },
+      },
+    });
+    const instance = provider({ apiKeyEnv: "LITELLM_TEST_KEY" }, ctx);
+
+    assert.equal(instance.available(), true);
+    await instance.search({ query: "hello" });
+    assert.equal(authorization, "Bearer launch-key");
   });
 });

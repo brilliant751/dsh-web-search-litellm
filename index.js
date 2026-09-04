@@ -10,7 +10,9 @@
  *
  * @module @brilliant751/dsh-web-search-litellm
  */
+import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError } from "@deepseek-ai/dsh-web";
+import z from "@deepseek-ai/schemastery";
 
 /** Stable id this provider registers under (matches `web.searchProvider`). */
 export const PROVIDER_ID = "litellm";
@@ -30,7 +32,15 @@ const DEFAULT_SEARCH_TOOL = "google";
 /** LiteLLM's documented upper bound for `max_results`. */
 const LITELLM_MAX_RESULTS = 20;
 /** Attribution header sent on every request. */
-const USER_AGENT = "dsh-web-search-litellm/0.1.0";
+const USER_AGENT = "dsh-web-search-litellm/0.1.1";
+
+/** Cordis configuration schema, including secret and credential-ref roles. */
+export const Config = z.object({
+  apiKey: z.string().role("secret"),
+  apiKeyEnv: z.string().role("credential-ref").default(DEFAULT_API_KEY_ENV),
+  baseURL: z.string().default(DEFAULT_BASE_URL),
+  searchToolName: z.string().default(DEFAULT_SEARCH_TOOL),
+});
 
 /** True for a fetch/AbortSignal abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error) {
@@ -110,6 +120,7 @@ export class LiteLLMSearchProvider {
   available() {
     const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL;
     if (!URL.canParse(baseURL)) return false;
+    if ((this.config.searchToolName ?? DEFAULT_SEARCH_TOOL).length === 0) return false;
     if ((this.config.apiKey?.length ?? 0) > 0) return true;
     const apiKeyEnv = this.config.apiKeyEnv ?? DEFAULT_API_KEY_ENV;
     try {
@@ -117,7 +128,7 @@ export class LiteLLMSearchProvider {
     } catch {
       // fall through to the environment check
     }
-    return (process.env[apiKeyEnv]?.length ?? 0) > 0;
+    return (launchEnvironmentOf(this.ctx).get(apiKeyEnv)?.value.length ?? 0) > 0;
   }
 
   /**
@@ -212,7 +223,7 @@ export class LiteLLMSearchProvider {
 
   /**
    * Resolve one operation's credential without retaining it on the provider.
-   * Order: literal `apiKey`, then the credentials service, then the process
+   * Order: literal `apiKey`, then the credentials service, then the DSH launch
    * environment. Throws `WEB_PROVIDER_CREDENTIAL_MISSING` when none resolves.
    */
   async resolveApiKey(apiKeyEnv, signal) {
@@ -234,7 +245,7 @@ export class LiteLLMSearchProvider {
       throw new WebError(`LiteLLM search credential resolution failed: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
     }
     if (resolved !== void 0 && resolved.length > 0) return resolved;
-    const ambient = process.env[apiKeyEnv];
+    const ambient = launchEnvironmentOf(this.ctx).get(apiKeyEnv)?.value;
     if (ambient !== void 0 && ambient.length > 0) return ambient;
     throw new WebError(
       `LiteLLM search has no API key for "${apiKeyEnv}"; store it through the credentials service, export it in the launching environment, or set a literal "apiKey" in the web-search-litellm config`,
