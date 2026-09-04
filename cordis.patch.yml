@@ -17,7 +17,7 @@
         # OpenAI-compatible base (with `/v1`), NOT the Anthropic passthrough.
         baseURL: https://your-litellm.example.com/v1
         # Credential reference resolved per search through ctx.credentials,
-        # falling back to the process environment.
+        # falling back to the DSH launch-environment snapshot.
         apiKeyEnv: DEEPSEEK_API_KEY
         # The LiteLLM search tool to invoke (see `GET /search/tools`).
         searchToolName: google
