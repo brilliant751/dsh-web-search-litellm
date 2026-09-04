@@ -98,14 +98,14 @@ describe("LiteLLM request mapping", () => {
     });
   });
 
-  it("normalizes a trailing slash and caps LiteLLM max_results at 20", async () => {
+  it("normalizes trailing slashes and caps LiteLLM max_results at 20", async () => {
     let call;
     globalThis.fetch = async (...args) => {
       call = args;
       return jsonResponse({ results: [] });
     };
 
-    await provider({ baseURL: "https://litellm.test/v1/?ignored=yes#fragment" })
+    await provider({ baseURL: "https://litellm.test/v1///?ignored=yes#fragment" })
       .search({ query: "hello", maxResults: 50 });
 
     assert.equal(call[0], "https://litellm.test/v1/search");
@@ -151,6 +151,14 @@ describe("LiteLLM failures and cancellation", () => {
     const error = await rejection(provider().search({ query: "hello" }));
     assert.equal(error.code, "WEB_PROVIDER_ERROR");
     assert.match(error.message, /connection refused/u);
+  });
+
+  it("maps an invalid baseURL to WEB_PROVIDER_ERROR", async () => {
+    globalThis.fetch = async () => assert.fail("fetch must not be called");
+    const error = await rejection(provider({ baseURL: "not a url" }).search({ query: "hello" }));
+    assert.equal(error.code, "WEB_PROVIDER_ERROR");
+    assert.match(error.message, /baseURL is invalid/u);
+    assert.ok(error.cause instanceof TypeError);
   });
 
   it("aborts while asynchronous credential resolution is pending", async () => {

@@ -40,8 +40,17 @@ function isAbortError(error) {
 
 /** Build the `/search` URL without double slashes or retained query/hash data. */
 function searchEndpoint(baseURL) {
-  const base = new URL(baseURL);
-  if (!base.pathname.endsWith("/")) base.pathname += "/";
+  let base;
+  try {
+    base = new URL(baseURL);
+  } catch (error) {
+    throw new WebError(
+      `LiteLLM baseURL is invalid: ${String(error)}`,
+      "WEB_PROVIDER_ERROR",
+      { cause: error },
+    );
+  }
+  base.pathname = `${base.pathname.replace(/\/+$/u, "")}/`;
   base.search = "";
   base.hash = "";
   return new URL("search", base).toString();
