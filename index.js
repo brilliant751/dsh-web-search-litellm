@@ -27,6 +27,8 @@ const DEFAULT_BASE_URL = "https://your-litellm.example.com/v1";
 const DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY";
 /** Default LiteLLM search tool name. */
 const DEFAULT_SEARCH_TOOL = "google";
+/** LiteLLM's documented upper bound for `max_results`. */
+const LITELLM_MAX_RESULTS = 20;
 /** Attribution header sent on every request. */
 const USER_AGENT = "dsh-web-search-litellm/0.1.0";
 
@@ -34,6 +36,47 @@ const USER_AGENT = "dsh-web-search-litellm/0.1.0";
 function isAbortError(error) {
   return (error instanceof DOMException && error.name === "AbortError") ||
     error?.name === "AbortError";
+}
+
+/** Build the `/search` URL without double slashes or retained query/hash data. */
+function searchEndpoint(baseURL) {
+  const base = new URL(baseURL);
+  if (!base.pathname.endsWith("/")) base.pathname += "/";
+  base.search = "";
+  base.hash = "";
+  return new URL("search", base).toString();
+}
+
+/** Validate the seam bound and adapt it to LiteLLM's documented 1–20 range. */
+function liteLLMMaxResults(maxResults) {
+  if (maxResults === void 0) return void 0;
+  if (!Number.isInteger(maxResults) || maxResults < 1) {
+    throw new WebError("web search maxResults must be a positive integer", "WEB_PROVIDER_ERROR");
+  }
+  return Math.min(maxResults, LITELLM_MAX_RESULTS);
+}
+
+/**
+ * Race an asynchronous preflight against caller cancellation. Settlement
+ * handlers stay attached after abort so a later rejection is still observed.
+ */
+function abortable(operation, signal, aborted) {
+  if (signal === void 0) return Promise.resolve(operation);
+  if (signal.aborted) return Promise.reject(aborted());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(aborted());
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(operation).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** The LiteLLM-backed search provider. */
@@ -78,20 +121,25 @@ export class LiteLLMSearchProvider {
     const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL;
     const apiKeyEnv = this.config.apiKeyEnv ?? DEFAULT_API_KEY_ENV;
     const searchToolName = this.config.searchToolName ?? DEFAULT_SEARCH_TOOL;
+    const maxResults = liteLLMMaxResults(request.maxResults);
 
     const apiKey = await this.resolveApiKey(apiKeyEnv, signal);
     this.throwIfAborted(signal);
 
-    const endpoint = `${baseURL}/search`;
+    const endpoint = searchEndpoint(baseURL);
     const body = {
       query: request.query,
       search_tool_name: searchToolName,
+      ...(maxResults !== void 0
+        ? { max_results: maxResults }
+        : {}),
     };
 
     let response;
     try {
       response = await fetch(endpoint, {
         method: "POST",
+        redirect: "error",
         headers: {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
@@ -112,7 +160,7 @@ export class LiteLLMSearchProvider {
         const parsed = await response.json();
         const detail = typeof parsed.error === "string" ? parsed.error
           : parsed.error?.message ?? parsed.message ?? parsed.detail;
-        if (detail !== void 0 && String(detail).length > 0) message = String(detail);
+        if (detail !== void 0 && String(detail).length > 0) message += `: ${String(detail)}`;
       } catch (error) {
         if (signal?.aborted === true || isAbortError(error)) throw this.aborted(signal, error);
       }
@@ -132,7 +180,13 @@ export class LiteLLMSearchProvider {
 
   /** Map LiteLLM `{ results: [{title,url,snippet,date}] }` to seam sources. */
   mapResults(data) {
-    const results = Array.isArray(data?.results) ? data.results : [];
+    if (!Array.isArray(data?.results)) {
+      throw new WebError(
+        "LiteLLM returned an invalid search response: expected a results array",
+        "WEB_PROVIDER_ERROR",
+      );
+    }
+    const results = data.results;
     const sources = results
       .filter((item) => typeof item?.url === "string" && item.url.length > 0)
       .map((item) => {
@@ -159,7 +213,11 @@ export class LiteLLMSearchProvider {
     try {
       const credentials = this.ctx.get("credentials");
       if (credentials !== void 0) {
-        const entry = await credentials.resolve(apiKeyEnv);
+        const entry = await abortable(
+          credentials.resolve(apiKeyEnv),
+          signal,
+          () => this.aborted(signal),
+        );
         resolved = entry?.value;
       }
     } catch (error) {
